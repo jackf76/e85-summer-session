@@ -6,7 +6,7 @@
 
 `include "parameters.svh"
 
-// If DUT_MODULE isn't defined on the vlog command line,
+// If DUT_MODULE isn't defined on the verilator command line,
 // fall back to a default name.
 `define INSTR_BITS 32
 
@@ -176,6 +176,16 @@ always @(negedge clk) begin
     `ifdef XLEN32
     DataMemory.Memory[((TO_HOST_ADR-`DMEM_BASE_ADR)>>2) + 1] = '0;
     `endif
+  end
+end
+
+/* ------- Waveform dump (Verilator: gated by +WAVES=<file>) ------- */
+initial begin
+  string wavefile;
+  if ($value$plusargs("WAVES=%s", wavefile)) begin
+    $dumpfile(wavefile);
+    $dumpvars(0, testbench);
+    $display("[TB] Dumping waves to %s", wavefile);
   end
 end
 

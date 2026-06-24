@@ -36,11 +36,13 @@ module ram1p1rwb #(
         if (reset) begin
             int i;
             logic[DATA_BITS-1:0] memory_entry;
+            // Blocking (=) required: Verilator does not support delayed (<=)
+            // assignment to array elements inside a for loop (BLKLOOPINIT).
+            // Functionally identical here since this just initializes memory.
             for (i = 0; i < MEMORY_SIZE_ENTRIES; i++) begin
                 memory_entry = InitMem [EXTRA_ENTRIES + i];
-                if (memory_entry === 'x)    Memory[i] <= '0;
-                else                        Memory[i] <= memory_entry;
-                // Memory[i] <= memory_entry;
+                if (memory_entry === 'x)    Memory[i] = '0;
+                else                        Memory[i] = memory_entry;
             end
         end else if (En && ((unsigned'(MemoryAddress) < unsigned'(MEMORY_ADR_OFFSET)) ||
                     (unsigned'(MemoryAddress) > unsigned'(MEMORY_ADR_OFFSET + (MEMORY_SIZE_ENTRIES-1) * (DATA_BITS/8))))) begin
@@ -78,7 +80,7 @@ module ram1p1rwb #(
             $display("%s Loading Memory: " + MEMORY_FILE_PATH, MEMORY_NAME);
             $readmemh(MEMORY_FILE_PATH, InitMem);
         end else if (MEMFILE_PLUS_ARG !== "") begin
-            // Try to read +MEMFILE=<path> from vsim command line
+            // Try to read +MEMFILE=<path> from the simulator command line (plusarg)
             if (!$value$plusargs({MEMFILE_PLUS_ARG,"=%s"},  memfile)) begin
                 $display("ERROR: %s +%s not supplied",MEMORY_NAME, MEMFILE_PLUS_ARG);
                 $finish(-1);

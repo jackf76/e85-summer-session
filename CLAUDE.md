@@ -21,7 +21,7 @@ source ~/cvw/setup.sh
 # Lint RTL with Verilator (fast syntax/logic check, no simulation)
 make lint
 
-# Compile RTL + testbench for QuestaSim
+# Verilate + compile RTL + testbench into a single Verilator executable
 make build
 
 # Run basic instruction sanity tests
@@ -42,7 +42,7 @@ make score
 # Run a specific ELF file through simulation
 make run ELFS="path/to/test.elf"
 
-# Run simulation with Questa GUI for debugging
+# Run simulation, dump a VCD waveform, and open it in GTKWave for debugging
 make run ELFS="path/to/test.elf" GUI=1
 
 # Run against SAIL reference model instead of processor

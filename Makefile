@@ -34,10 +34,10 @@ ARCH := rv$(XLEN)i_zicsr
 ELFS 				?=
 GUI  				?= 0
 SAIL  				?= 0
-VSIM_EXTRA_FLAGS 	?= # Extra flags if you want them
+VERILATOR_EXTRA_FLAGS ?= # Extra verilate/compile flags if you want them
 
 # Optional extra plusargs you can add without touching the recipe
-VSIM_PLUSARGS_EXTRA ?=
+SIM_PLUSARGS_EXTRA  ?=
 
 # ---- Command line optional parameters ---- #
 # (moved to top knobs)
@@ -64,9 +64,20 @@ TEST_WORK_DIR	?= $(ACT4_TEST_DIR)/work
 C_TEST_WORK_DIR ?= $(C_TEST_DIR)/work
 CM_WORK_DIR		?= $(COREMARK_DIR)/work
 
-# ----    Simulation Settings    ---- #
-VSIM        	?= vsim
-VSIM_FLAGS  	?= -voptargs=+acc
+# ----    Simulation Settings (Verilator)   ---- #
+VERILATOR        	?= verilator
+VERILATOR_OBJ_DIR	?= $(WORK_DIR)/obj_dir
+SIM_BIN          	?= $(VERILATOR_OBJ_DIR)/V$(TB_TOP)
+
+# --binary: verilate + compile + link into one executable
+# --timing: support #delays / clock-gen in the SV testbench
+# --trace: compile in VCD tracing (only active when TB calls $dumpvars via +WAVES).
+#          VCD needs no extra libs; for FST use --trace-fst (requires zlib1g-dev).
+# -Wno-fatal: don't let lint nits abort the sim build (use `make lint` for real linting)
+VERILATOR_FLAGS  	?= --binary --timing --trace \
+	--top-module $(TB_TOP) \
+	-Wno-fatal -Wno-TIMESCALEMOD \
+	-Mdir $(VERILATOR_OBJ_DIR) -o V$(TB_TOP)
 
 # ----    Tools    ---- #
 PYTHON 		:= python3
@@ -96,7 +107,7 @@ all: build
 
 .PHONY: lint
 lint:
-	@verilator --lint-only --quiet \
+	@verilator --lint-only \
 		--top-module $(PROCESSOR_TOP) \
 		-DPROCESSOR_TOP=$(PROCESSOR_TOP) \
 		-I$(abspath $(INC_DIR)) \
@@ -105,20 +116,19 @@ lint:
 		&& echo "[LINT] Linting completed without errors."
 # -Wno-DECLFILENAME -Wno-CASEX
 
-# Build = compile RTL once into $(WORK_DIR)/build
+# Build = verilate + compile the whole design + testbench into one executable
 .PHONY: build
-$(WORK_DIR)/_info: $(SV_PACKAGES) $(SV_SOURCES) $(TESTBENCH_FILES) Makefile
-	echo "[BUILD] Creating/using local 'work' library..." && \
-	(vlib work 2>/dev/null || true) && \
-	echo "[BUILD] Compiling SystemVerilog sources..." && \
-	vlog -sv \
-		+incdir+$(INC_DIR) \
-		+define+PROCESSOR_TOP=$(PROCESSOR_TOP) \
-		+define+XLEN=$(XLEN) $(abspath $(SV_PACKAGES) $(SV_SOURCES) $(TESTBENCH_FILES))
+$(SIM_BIN): $(SV_PACKAGES) $(SV_SOURCES) $(TESTBENCH_FILES) Makefile
+	@echo "[BUILD] Verilating design + testbench with Verilator..."
 	@mkdir -p $(WORK_DIR)
-	@touch $@
+	$(VERILATOR) $(VERILATOR_FLAGS) $(VERILATOR_EXTRA_FLAGS) \
+		+define+PROCESSOR_TOP=$(PROCESSOR_TOP) \
+		+define+XLEN=$(XLEN) \
+		+incdir+$(abspath $(INC_DIR)) \
+		$(abspath $(SV_PACKAGES) $(SV_SOURCES) $(TESTBENCH_FILES))
+	@echo "[BUILD] Built $(SIM_BIN)"
 
-build: $(WORK_DIR)/_info Makefile
+build: $(SIM_BIN) Makefile
 
 # ----  Generic memfile / run / test flow  ---- #
 
@@ -159,38 +169,40 @@ endif
 	 > $@.log 2>&1
 
 
-# Build the vsim mode flags from GUI
+# GUI=1: dump an FST waveform (+WAVES) and open it in GTKWave after the run.
+# Verilator has no interactive GUI sim like Questa; it produces wave files instead.
 ifeq ($(GUI),1)
-  VSIM_MODE_FLAGS :=
-  VSIM_DO := if {[file exists $(WAVES_DO)]} {do $(WAVES_DO)};
+  SIM_WAVE_PLUSARG = +WAVES="$$ELF.vcd"
 else
-  VSIM_MODE_FLAGS := -c
-  VSIM_DO := run -all; quit -f
+  SIM_WAVE_PLUSARG =
 endif
 
-# VSIM plusargs in one place (shell vars, so they expand correctly inside %.processor)
-VSIM_PLUSARGS_BASE  ?= \
+# Sim plusargs in one place (shell vars, so they expand correctly inside %.processor)
+SIM_PLUSARGS_BASE  ?= \
 	+TESTNAME="$$NAME" \
 	+MEMFILE="$$MEMFILE" \
 	+ENTRY_ADDR="$$ENTRY_ADDR" \
 	+TOHOST_ADDR="$$TOHOST_ADDR" \
 	+DMEM_BASE_ADDR="$$DMEM_BASE_ADDR"
 
-%.processor: %.memfile $(WORK_DIR)/_info Makefile
+%.processor: %.memfile $(SIM_BIN) Makefile
 	@set -e; \
 	MEMFILE="$(abspath $<)"; \
 	ELF="$${MEMFILE%.memfile}.elf"; \
 	ENTRY_ADDR="$$(riscv64-unknown-elf-readelf -h "$$ELF" | awk '/Entry point address:/ {print $$NF}')"; \
-	TOHOST_ADDR="$$(riscv64-unknown-elf-readelf --syms --wide "$$ELF" | awk '$$NF=="tohost" {print "0x"$$2; exit}')" \
-	DMEM_BASE_ADDR="$$(riscv64-unknown-elf-readelf --syms --wide "$$ELF" | awk '$$NF=="dmem_base" {print "0x"$$2; exit}')" \
+	TOHOST_ADDR="$$(riscv64-unknown-elf-readelf --syms --wide "$$ELF" | awk '$$NF=="tohost" {print "0x"$$2; exit}')"; \
+	DMEM_BASE_ADDR="$$(riscv64-unknown-elf-readelf --syms --wide "$$ELF" | awk '$$NF=="dmem_base" {print "0x"$$2; exit}')"; \
 	NAME="$${ELF##*/}"; \
 	LOGFILE="$${ELF}.sim.log"; \
 	echo "[RUN] ELF: $$ELF"; \
-	echo "[VSIM] Using memfile $$MEMFILE (log: $$LOGFILE)"; \
-	$(VSIM) $(VSIM_MODE_FLAGS) $(VSIM_FLAGS) $(VSIM_EXTRA_FLAGS) work.$(TB_TOP) \
-		$(VSIM_PLUSARGS_BASE) $(VSIM_PLUSARGS_EXTRA) \
-		-do "$(VSIM_DO)" \
-		2>&1 | { [ "$(GUI)" = "1" ] && tee "$$LOGFILE" || cat >"$$LOGFILE"; }
+	echo "[SIM] Using memfile $$MEMFILE (log: $$LOGFILE)"; \
+	$(SIM_BIN) \
+		$(SIM_PLUSARGS_BASE) $(SIM_PLUSARGS_EXTRA) $(SIM_WAVE_PLUSARG) \
+		2>&1 | { [ "$(GUI)" = "1" ] && tee "$$LOGFILE" || cat >"$$LOGFILE"; }; \
+	if [ "$(GUI)" = "1" ]; then \
+		echo "[WAVES] Opening $$ELF.vcd in GTKWave"; \
+		gtkwave "$$ELF.vcd" >/dev/null 2>&1 & \
+	fi
 
 
 .PHONY: synth

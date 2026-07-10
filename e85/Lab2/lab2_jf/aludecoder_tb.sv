@@ -24,8 +24,8 @@ module aludecoder_tb();
    logic [10:0] testvectors[10000:0];   // 7 input bits + 3 output bits + guard
 
    // Instantiate device under test.
-   aludecoder dut(.ALUOp(ALUOp), .funct3(funct3), .op5(op5),
-                  .funct75(funct75), .ALUControl(ALUControl));
+   aludecoder dut(.ALUOp, .funct3, .op5,
+                  .funct75, .ALUControl);
 
    // Clock: period of 10 time units.
    always begin
@@ -40,7 +40,7 @@ module aludecoder_tb();
       // Prefill with 1s so the guard bit ([10]) is set; $readmemb zero-fills
       // the guard bit on every line it loads.
       for (int i = 0; i <= 10000; i++) testvectors[i] = '1;
-      $readmemb("aludecoder.tv", testvectors);
+      $readmemb("aludecoderFixed.tv", testvectors);
       vectornum = 0;
       errors    = 0;
       reset = 1; #22; reset = 0;

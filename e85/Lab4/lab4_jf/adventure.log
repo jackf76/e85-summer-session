@@ -1,0 +1,5 @@
+14 tests completed with 0 errors
+- testbench.sv:53: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.032 2025-01-01
+- Verilator: $finish at 175ps; walltime 0.009 s; speed 97.260 ns/s
+- Verilator: cpu 0.002 s on 1 threads; alloced 121 MB
